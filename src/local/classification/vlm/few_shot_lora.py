@@ -24,7 +24,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm.auto import tqdm
 from .adapters.lora.biomedclip_lora import apply_lora as apply_biomedclip_lora
 from .adapters.lora.clip_lora import apply_lora as apply_clip_lora
-from .helpers import LinearClassifier, load_busi_image_as_pil
+from .helpers import LinearClassifier, load_busi_image_as_pil, plot_fewshot_summary
 from .models import load_biomedclip, load_openai_clip, load_unimedclip
 
 MODEL_NAME_TO_KEY = {
@@ -716,6 +716,30 @@ def run_kshot_experiments(args, train_df, val_df, test_df, class_names, ks, seed
         summary_df.to_csv(save_dir / 'summary.csv', index=False)
         logger.info(f"Saved results to {save_dir / 'results.csv'}")
         logger.info(f"Saved summary to {save_dir / 'summary.csv'}")
+
+        # Save few-shot summary plots for the LoRA baseline.
+        try:
+            plot_fewshot_summary(
+                summary_df,
+                metric='test_macro_f1',
+                output_path=save_dir / 'lora_macro_f1.png',
+                title=f'{model_key} few-shot LoRA macro F1',
+            )
+            plot_fewshot_summary(
+                summary_df,
+                metric='test_accuracy',
+                output_path=save_dir / 'lora_accuracy.png',
+                title=f'{model_key} few-shot LoRA accuracy',
+            )
+            plot_fewshot_summary(
+                summary_df,
+                metric='test_auc',
+                output_path=save_dir / 'lora_auc.png',
+                title=f'{model_key} few-shot LoRA AUC',
+            )
+            logger.info('Saved LoRA summary plots.')
+        except Exception as exc:
+            logger.warning(f'Could not save LoRA plots: {exc}')
 
     print('\nLoRA summary:')
     print(summary_df.to_string(index=False))

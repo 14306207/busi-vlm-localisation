@@ -19,7 +19,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from .helpers import LinearClassifier
+from .helpers import LinearClassifier, plot_fewshot_summary
 
 @dataclass
 class LinearProbeConfig:
@@ -498,6 +498,31 @@ def run_linear_probe_experiments(
         aggregate_df.to_csv(output_dir / 'summary.csv', index=False)
         logger.info(f"Saved results to {output_dir / 'results.csv'}")
         logger.info(f"Saved summary to {output_dir / 'summary.csv'}")
+
+        # Save few-shot summary plots for the linear probe baseline.
+        try:
+            plot_fewshot_summary(
+                summary_df,
+                metric='test_macro_f1',
+                output_path=output_dir / 'lp_macro_f1.png',
+                title=f'{model_name} few-shot linear probe macro F1',
+            )
+            plot_fewshot_summary(
+                summary_df,
+                metric='test_accuracy',
+                output_path=output_dir / 'lp_accuracy.png',
+                title=f'{model_name} few-shot linear probe accuracy',
+            )
+            plot_fewshot_summary(
+                summary_df,
+                metric='test_auc',
+                output_path=output_dir / 'lp_auc.png',
+                title=f'{model_name} few-shot linear probe AUC',
+            )
+            logger.info('Saved linear probe summary plots.')
+        except Exception as exc:
+            logger.warning(f'Could not save LP plots: {exc}')
+
         logger.info('\n' + aggregate_df.to_string(index=False))
 
     return results_df, aggregate_df
