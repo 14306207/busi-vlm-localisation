@@ -3,6 +3,11 @@ from pathlib import Path
 import torch
 from huggingface_hub import hf_hub_download
 
+'''
+We chose UniMed-CLIP as one of our two generalist medical VLMs because it was trained on over 5.3 million image-text pairs across six diverse imaging modalities (including ultrasound imaging).
+See: https://github.com/mbzuai-oryx/UniMed-CLIP
+'''
+
 # Loads UniMed-CLIP from the vendored source tree instead of the installed open_clip package.
 def _load_unimed_open_clip(project_root):
     unimed_src = Path(project_root) / 'external' / 'UniMed-CLIP' / 'src'
