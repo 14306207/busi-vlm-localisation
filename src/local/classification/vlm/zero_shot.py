@@ -1,6 +1,5 @@
 '''
 Zero-shot CLIP classification helpers for all three CLIP variants using prompt ensembling.
-
 See: https://github.com/mlfoundations/open_clip/blob/main/src/open_clip/zero_shot_classifier.py
 '''
 
