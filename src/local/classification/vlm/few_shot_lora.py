@@ -106,6 +106,7 @@ def set_seed(seed: int):
         torch.cuda.manual_seed_all(seed)
 
 def sample_kshot_indices(labels, k: int, seed: int):
+    '''Balanced sampling of k shots per class for few-shot LoRA fine-tuning. Returns the selected indices as a numpy array.'''
     rng = np.random.default_rng(seed)
     labels = np.asarray(labels)
 
@@ -145,7 +146,7 @@ def encode_logits(clip_model, classifier: nn.Module, images: torch.Tensor):
     features = clip_model.encode_image(images).float()
     features = features / features.norm(dim=-1, keepdim=True).clamp_min(1e-6)
     return classifier(features)
-
+'''Use sperate learning rates for the head and LoRA parameters, so we need to be able to count them separately. This function returns the number of trainable parameters and total parameters in the model.'''
 def count_trainable_parameters(model):
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total = sum(p.numel() for p in model.parameters())
@@ -244,7 +245,7 @@ def _apply_vision_lora(args, model, show_adapter_log: bool = False):
 
     with contextlib.redirect_stdout(io.StringIO()):
         return _apply()
-
+'''Load model, apply LoRA adapters, and infer the classification feature dimension. Returns the patched CLIP model, classifier head, preprocesses, and trainable parameter names.'''
 def prepare_model(args, support_df: pd.DataFrame, logger: logging.Logger | None = None, log_model_summary: bool = False):
     if logger is None:
         logger = logging.getLogger('fewshot_lora')
@@ -413,6 +414,8 @@ def save_outputs(
 
 def train_one_kshot(args, train_df, val_df, test_df, class_names, k, seed, support_idx=None, save_dir=None, logger=None, writer=None, log_model_summary=False):
     set_seed(seed)
+    '''Performs one run of few-shot LoRA fine-tuning and evaluation for the given k and seed. If support_idx is provided, it is used as the indices for the support set; otherwise, balanced sampling is performed to select k shots per class from train_df. Returns a dictionary of results and saves outputs if save_dir is specified.'''
+    '''Use either a provded support index set or sample a new one'''
 
     if logger is None:
         logger = logging.getLogger('fewshot_lora')
@@ -636,7 +639,7 @@ def train_one_kshot(args, train_df, val_df, test_df, class_names, k, seed, suppo
         )
 
     return result
-
+'''Orchestrates few-shot LoRA fine-tuning experiments across multiple k values and seeds. For each combination of k and seed, it calls train_one_kshot to perform fine-tuning and evaluation, collects results, and saves outputs if save_dir is specified. Finally, it compiles results into a DataFrame and prints/saves a summary.'''
 def run_kshot_experiments(args, train_df, val_df, test_df, class_names, ks, seeds, save_dir=None, support_indices=None,):
     results = []
     model_key = _model_key(args)
