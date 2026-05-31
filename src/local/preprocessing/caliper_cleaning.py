@@ -80,6 +80,7 @@ NON_GREY_MIN_BRIGHT = 20  # Helps with anti-aliasing artifacts.
 INPAINT_RADIUS = 3
 MASK_DILATE_PX = 2
 
+#Create thin rectangle (around dotted line)
 def build_oriented_rectangle(p1, p2, halfwidth):
     x1, y1 = float(p1[0]), float(p1[1])
     x2, y2 = float(p2[0]), float(p2[1])
@@ -94,6 +95,8 @@ def build_oriented_rectangle(p1, p2, halfwidth):
     return np.array([[x1+px, y1+py], [x2+px, y2+py],
                      [x2-px, y2-py], [x1-px, y1-py]], dtype=np.int32)
 
+
+#combine boxes that have touching edges, repeat until completed
 def merge_overlapping_boxes(boxes, dilate=3):
     if not boxes:
         return []
@@ -182,7 +185,7 @@ def find_caliper_markers_template(gray):
 
     return [(cx-arm-2, cy-arm-2, cx+arm+2, cy+arm+2) for cx, cy, arm, _ in kept]
 
-# Combined caliper detection.
+# Combined caliper detection, only run if not enough callipers are detected
 def find_caliper_markers(gray):
     cc_boxes = find_caliper_markers_cc(gray)
 
@@ -202,7 +205,7 @@ def find_caliper_markers(gray):
 
     return merge_overlapping_boxes(combined, dilate=4)
 
-# Sample annotation colour range.
+# Sample annotation colour range, used for detecting colour band of callipers
 def sample_annotation_colours(gray, caliper_boxes):
     if not caliper_boxes:
         return COLOUR_FLOOR, 255
@@ -221,6 +224,7 @@ def sample_annotation_colours(gray, caliper_boxes):
     hi = min(255, int(max(pixel_values)) + COLOUR_TOLERANCE)
     return lo, hi
 
+#if colour band masks too much of the bounding box, shrink colour range until it meets threshold
 def clamp_mask_coverage(gray, colour_lo, colour_hi):
     total = gray.size
     for _ in range(MASK_TIGHTEN_MAX_ITER):
@@ -234,7 +238,7 @@ def clamp_mask_coverage(gray, colour_lo, colour_hi):
             break
     return colour_lo, colour_hi
 
-# Line scoring.
+# Line scoring, go along line and check fraction of samples that land on annotation coloured pixels
 def _score_line(gray, p1, p2, colour_lo, colour_hi):
     x1, y1 = p1
     x2, y2 = p2
@@ -266,7 +270,7 @@ def find_dotted_lines(gray, caliper_boxes, colour_lo, colour_hi, img_shape):
         return [], set()
 
     img_h, img_w = img_shape
-    max_lines = len(caliper_boxes) // 2  # Hard cap: floor(N/2).
+    max_lines = len(caliper_boxes) // 2  # Hard cap
     centres = [((x1+x2)//2, (y1+y2)//2) for x1, y1, x2, y2 in caliper_boxes]
 
     candidates = []
@@ -303,7 +307,8 @@ def find_dotted_lines(gray, caliper_boxes, colour_lo, colour_hi, img_shape):
 
     return results, used
 
-# Radial direction finder (vectorised).
+# Radial direction finder (vectorised). this is really dodgy and doesnt work too well honestly, idea was to sweep around the calliper 360 degrees, then find the direction that has
+# has dotted line extending a minimum direction outwards. To be used if the image has an uneven amount of callipers
 def _find_outward_direction(gray, start_xy, colour_lo, colour_hi):
     h, w = gray.shape
     sx, sy = int(start_xy[0]), int(start_xy[1])
@@ -342,6 +347,7 @@ def _find_outward_direction(gray, start_xy, colour_lo, colour_hi):
 
     return float(np.cos(theta)), float(np.sin(theta)), max(score_a, score_b)
 
+# trace the dotted line, moving outwards in the direction determined by find outward direction above, give up after too many consecutive misses
 def _trace_dotted_line(gray, start_xy, colour_lo, colour_hi):
     direction = _find_outward_direction(gray, start_xy, colour_lo, colour_hi)
     if direction is None:
@@ -381,6 +387,8 @@ def _trace_dotted_line(gray, start_xy, colour_lo, colour_hi):
 
     return (dx, dy), last_hit
 
+
+# run radial trace on any calliper thand didnt get paired with another calliper
 def find_traced_lines(gray, caliper_boxes, paired_indices,
                       colour_lo, colour_hi, img_shape):
     img_h, img_w = img_shape
@@ -408,7 +416,7 @@ def find_traced_lines(gray, caliper_boxes, paired_indices,
 
     return results
 
-# Expand caliper boxes / OCR text detection.
+# Expand caliper boxes / expand calliper boxes a bit to detect additional artifacts around the calliper, especially numbers 1, 2
 def expand_caliper_boxes(caliper_boxes, img_h, img_w,
                          padding=CALIPER_DIGIT_PADDING):
     return [
@@ -416,26 +424,33 @@ def expand_caliper_boxes(caliper_boxes, img_h, img_w,
          min(img_w, x2+padding), min(img_h, y2+padding))
         for x1, y1, x2, y2 in caliper_boxes
     ]
+# OCR detecting and masking
 
 def find_text_regions_easyocr(img_bgr, reader):
     boxes = []
+
     for bbox, text, conf in reader.readtext(img_bgr):
         text_clean = text.strip().lower()
+
         if text_clean in OCR_IGNORE_STRINGS:
             continue
+
         if conf < OCR_CONF:
             continue
-        print(f'  OCR: "{text_clean}" conf={conf:.2f}')
+
         xs = [p[0] for p in bbox]
         ys = [p[1] for p in bbox]
+
         x1 = max(0, int(min(xs)) - OCR_PADDING)
         y1 = max(0, int(min(ys)) - OCR_PADDING)
         x2 = min(img_bgr.shape[1], int(max(xs)) + OCR_PADDING)
         y2 = min(img_bgr.shape[0], int(max(ys)) + OCR_PADDING)
-        if TEXT_BOX_MAX_AREA > 0 and (x2-x1)*(y2-y1) > TEXT_BOX_MAX_AREA:
-            print(f'    skipped (area={(x2-x1)*(y2-y1)} > {TEXT_BOX_MAX_AREA})')
+
+        if TEXT_BOX_MAX_AREA > 0 and (x2 - x1) * (y2 - y1) > TEXT_BOX_MAX_AREA:
             continue
+
         boxes.append((x1, y1, x2, y2))
+
     return boxes
 
 # Build pixel-exact removal mask.
@@ -494,47 +509,45 @@ def build_colour_exact_mask(gray, img_bgr, regions,
 
     return mask, grey_mask_no_text, colour_mask, text_mask
 
+#inpaint the mask
 def inpaint_masked(img_bgr, mask, radius=INPAINT_RADIUS):
     return cv2.inpaint(img_bgr, mask, radius, cv2.INPAINT_TELEA)
 
+#fallback for suspicous image, if there are too few callipers or lines found
 def sus_img(gray, img_bgr, caliper_boxes_raw, dotted_lines):
-    print(f'  fallback: {len(caliper_boxes_raw)} calipers, '
-          f'{len(dotted_lines)} lines')
-
     img_h, img_w = gray.shape
 
     # Add template-matched calipers if we are short.
     if len(caliper_boxes_raw) < MIN_CALIPERS_BEFORE_TEMPLATE:
         tm_boxes = find_caliper_markers_template(gray)
-        cc_centres = [((x1+x2)//2, (y1+y2)//2) for x1, y1, x2, y2 in caliper_boxes_raw]
+
+        cc_centres = [((x1 + x2) // 2, (y1 + y2) // 2) for x1, y1, x2, y2 in caliper_boxes_raw]
+
         for tb in tm_boxes:
-            tcx, tcy = (tb[0]+tb[2])//2, (tb[1]+tb[3])//2
-            if not any(abs(tcx-ccx) <= CC_TEMPLATE_DEDUP_RADIUS and
-                       abs(tcy-ccy) <= CC_TEMPLATE_DEDUP_RADIUS
-                       for ccx, ccy in cc_centres):
+            tcx = (tb[0] + tb[2]) // 2
+            tcy = (tb[1] + tb[3]) // 2
+
+            if not any(abs(tcx - ccx) <= CC_TEMPLATE_DEDUP_RADIUS and abs(tcy - ccy) <= CC_TEMPLATE_DEDUP_RADIUS for ccx, ccy in cc_centres):
                 caliper_boxes_raw.append(tb)
+
         caliper_boxes_raw = merge_overlapping_boxes(caliper_boxes_raw, dilate=4)
-        print(f'    after template matching: {len(caliper_boxes_raw)} calipers')
 
     # Compute both colour ranges.
     colour_lo_raw, colour_hi_raw = sample_annotation_colours(gray, caliper_boxes_raw)
+
     colour_lo, colour_hi = clamp_mask_coverage(gray, colour_lo_raw, colour_hi_raw)
 
-    # Re-score dotted lines with clamped range (tighter = fewer false positives).
-    dotted_lines, paired_indices = find_dotted_lines(
-        gray, caliper_boxes_raw, colour_lo, colour_hi, (img_h, img_w)
-    )
+    # Re-score dotted lines with clamped range.
+    dotted_lines, paired_indices = find_dotted_lines(gray, caliper_boxes_raw, colour_lo, colour_hi, (img_h, img_w))
 
     # Radial trace using the raw range so dim dots are not missed.
-    traced_lines = find_traced_lines(
-        gray, caliper_boxes_raw, paired_indices,
-        colour_lo_raw, colour_hi_raw, (img_h, img_w)
-    )
+    traced_lines = find_traced_lines(gray, caliper_boxes_raw, paired_indices, colour_lo_raw, colour_hi_raw, (img_h, img_w))
 
     all_lines = dotted_lines + traced_lines
-    print(f'    dotted={len(dotted_lines)}, traced={len(traced_lines)}')
-    return caliper_boxes_raw, all_lines, colour_lo, colour_hi, colour_lo_raw, colour_hi_raw
 
+    return (caliper_boxes_raw, all_lines, colour_lo, colour_hi, colour_lo_raw, colour_hi_raw)
+
+#MAIN PIPELINE
 def preprocess_image(img_bgr):
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     img_h, img_w = gray.shape
@@ -609,6 +622,8 @@ def preprocess_image(img_bgr):
         'grey_mask': grey_mask,
         'colour_mask': colour_mask,
         'text_mask': text_mask,
+        'ocr_regions': len(text_boxes),
+        'used_fallback': need_fallback
     }
 
     return cleaned, debug_info
